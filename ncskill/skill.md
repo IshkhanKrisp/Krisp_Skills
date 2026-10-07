@@ -1,5 +1,5 @@
 ---
-name: nc_skill
+name: ncskill
 description: Investigate Krisp Noise Cancellation (NC) support reports using customer descriptions, Krisp logs, and optional audio recordings; explain evidence-backed findings in clear customer-facing language.
 ---
 
