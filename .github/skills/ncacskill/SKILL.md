@@ -1,13 +1,13 @@
 ---
 name: ncacskill
-description: Investigate Krisp Noise Cancellation (NC) support reports using customer descriptions, Krisp logs, and optional audio recordings; explain evidence-backed findings in clear customer-facing language.
+description: Investigate Krisp Noise Cancellation and related support reports using customer descriptions, Krisp logs, and optional audio recordings; provide technical findings and a complete customer email based on the matching support template.
 ---
 
 # Krisp Noise Cancellation Log Troubleshooting
 
 ## Purpose
 
-Use this skill to investigate a customer's report about Krisp Noise Cancellation or related microphone and speaker behavior. Review the customer's description alongside the provided logs, identify the most likely cause supported by the evidence, and explain it clearly and empathetically to the customer.
+Use this skill to investigate customer reports covered by its troubleshooting guidance and template library, including Noise Cancellation, Accent Conversion, Voice Translation, and related microphone, speaker, and CX Bridge behavior. Review the customer's description alongside the provided logs and any relevant audio, identify the most likely cause supported by the evidence, and provide both internal technical findings and a complete, clear, empathetic customer email.
 
 Do not infer a cause from the symptom alone. Distinguish observed log facts from likely explanations, and state when the available evidence is inconclusive.
 
@@ -17,6 +17,142 @@ Do not infer a cause from the symptom alone. Distinguish observed log facts from
 - Review any supplied audio recording when it is relevant and available. Treat it as supporting evidence; do not claim to have listened to a recording that was not provided or could not be reviewed.
 - Logs rotate by age. `kr_app.log`, `kr_audio_dm.log`, and `kr_media_sp.log` are the current logs; `.1` is the next older file, continuing through `.10`. Search across relevant rotated files when the reported call is not in the current log, and correlate events by timestamp and call/session.
 - Use `systeminfo.json` or `system.json` when supplied for device, OS, hardware, and memory context. Review `userConfigs.json` only when the symptom points to a user-setting issue.
+
+## Common Accent Conversion issue patterns
+
+Use these as symptom-oriented patterns rather than automatic diagnoses. Always confirm the affected call, timestamps, and logging context before settling on a cause.
+
+| Issue pattern | Typical customer wording | Common causes to rule in/out | Typical evidence to check |
+| --- | --- | --- | --- |
+| Robotic or “AI” voice | “caller ask if i am a real person,” “sounds robotic,” “AI voice” | Monotone speech, CPU overload, model or profile issue, overprocessing | `kr_app.log` call state, AC mode/profile selection, `[SYSTEM_OVERLOAD]`, `kr_media_sp.log` energy/processing stats, audio sample review |
+| Audio cutting in and out | “my voice is breaking/cracking while I am talking,” “line breaking in and out” | Overprocessed audio, BVC/NC processing too aggressive, low-quality headset or microphone, bad device route, CPU overload | `kr_app.log` device route, `kr_audio_dm.log` volume changes, `kr_media_sp.log` overwrite/dropped frames, `[SYSTEM_OVERLOAD]` |
+| Audio crackling / static | “bad connection,” “static line,” “crackling sound,” “extreme static” | Poor original mic capture, headset not compatible with Voice Isolation, weak input device, bad route or processing | Device compatibility state, mic model info, audio sample before/after processing, BVC compatibility result |
+| Muffled / underwater voice | “I sound robotic and with static as if I was on a radio station,” “I sound underwater” | Unhealthy or low-quality headset, rare model issue, processing too aggressive | Headset compatibility state, microphone model info, model path, audio sample review |
+| Low/unstable volume | “I sound too low,” “customers say my volume is impossible to understand,” “my audio keeps dropping in and out” | Mic volume too low, AGC, wrong volume-control mode, headset volume sync | `kr_app.log` `setVolumeControlMode`, `kr_audio_dm.log` `[VOLUME_CHANGED]`, device and selected mic state |
+| No audio from customer | “No audio coming from the customer,” “sometimes during the call, caller cannot hear me” | Mute state, wrong selected mic/speaker, mic route issue, device failure | `[CALL_START]`, `[CALL_END]`, mute state, selected mic/speaker, stream start/end |
+| Audio delay | “there is a strong delay that can lead to talking over each other” | Poor network, wireless headset, overloaded system or overprocessed audio | Check network quality when available, `kr_app.log` system state, call route and processing state |
+| Incorrect phone conversion / distorted words | “some words come out not right,” “I am sounding too robotic,” “words get lost” | Low bandwidth, pronunciation/tone issues, overprocessing, wrong model selection | Audio sample before processing, `kr_media_sp.log` energy stats, device bandwidth and model info |
+| Accent Conversion not applied / wrong profile | “Accent Conversion turned off,” “switching from Voice Profiles to Voice Preservation,” “test AC recording doesn’t sound right” | Incorrect mode selected, profile/model not loaded, route mismatch, user config or feature toggle changed | `getProfileData`, `onChangeAccentProcessorMode`, `changeAccentProcessorSettings`, model path, mode selection, test recording details |
+| CPU or memory pressure | “the call is choppy,” “quality drops during heavy CPU use” | Hard or soft overload, high utilization, low memory, GPU/CPU competition | `kr_app.log` `[SYSTEM_OVERLOAD]`, `kr_native_utils.log` utilization dumps, `kr_media_sp.log` frame overwrites |
+
+## Log checks we usually do for Accent Conversion tickets
+
+Check the logs in the order below, then connect them to the affected call window. Use timestamps to link the data to call start and end events and to make sure you are sharing only relevant findings with the customer.
+
+### 1. Device and compatibility state
+
+Check the following in `kr_app.log` and related device logs:
+
+- `[CALL_START]` and `[CALL_END]`: match the call start/end using the call ID; confirm which actual microphone/speaker was selected, and whether Krisp or the app was using the intended route.
+- `InitialNcState`, `InitialMuteState`, `isMuted`: verify whether NC or mute was on at the start of the call and whether it changed during the call.
+- `bvcCompatibilityState`: look for `ALLOWED`, `BLOCKED`, or `USER_CHOICE_ALLOWED`. If the customer is on a headset that is not supported, it can explain voice quality or unwanted secondary voices.
+- `DeviceInfo`, actual device name, and the selected model: confirm that the selected microphone or speaker is the one the customer expects to use.
+
+Example checks:
+
+- `DeviceInfo: {"modelId":"...","manufacturer":"...","bvcCompatibilityState":"BLOCKED"}`
+- `AudioService:onChangeAccentProcessorMode` and `AccentProcessorState` changes
+- `AccountService.getProfileData` showing `"accent_in"` / `"accent_out"` or `"voiceProfiles"` enabled/disabled
+
+### 2. Accent Conversion mode, profile, and model state
+
+For Accent Conversion, inspect the model and profile state at call start, during the call, and in the test AC flow.
+
+Look for:
+
+- `selectAccentVoice`, `changeAccentProcessorMode`, `changeAccentProcessorSettings`
+- `accentState`, `switcherState`, `modelName`, `voiceName`, `voicePitch`, `voiceEmbedding`, `noiseSuppressionLevel`
+- `Voice Profiles` mode vs `Voice Preservation`, and whether the selected profile is actually available
+- The model path and model name saved on the device, especially if a specific model was loaded or changed
+
+Examples:
+
+- `AudioService:onAccentProcessorStateChange: accent available: true, accentState: {"switcherState":"false","switcherDisabled":"false"}`
+- `changeProcessorSettings ... modelName: "voicePitch" / "voiceEmbedding" / "noiseSuppressionLevel"`
+- `CreateARProcessor() ... modelPath: ...\resources\models\audio\air_inbound_wb_c_3_9_2_3_0.kef`
+
+If the customer reports a profile or model issue, check whether the user changed the mode or profile halfway through the call and whether the test AC flow also shows the same result.
+
+### 3. Volume, AGC, and volume-control checks
+
+Check `kr_audio_dm.log` for `[VOLUME_CHANGED]` and `kr_app.log` for the volume-control mode.
+
+Typical checks:
+
+- `AudioService:setVolumeControlMode: deviceType: 0, volumeControlMode: LOCK_ON_OPTIMAL_LEVEL` or `SYNC_WITH_KRISP`
+- `[VOLUME_CHANGED]` events firing repeatedly for the microphone or speaker
+- `Automatic Gain Control` being active on the microphone or in the app
+- Whether the user is on `LOCK_ON_OPTIMAL_LEVEL` versus `SYNC_WITH_KRISP`
+
+Important note: if `[VOLUME_CHANGED]` is spammed, AGC is very likely involved. Also check whether the system is reducing or changing volume after processing rather than before it. 
+
+### 4. Overload, CPU, RAM, and GPU checks
+
+Check for hard or soft overloads and utilization patterns in `kr_app.log` and `kr_native_utils.log`.
+
+Look for:
+
+- `[SYSTEM_OVERLOAD]` in `kr_app.log`
+- `AudioService:handleModeAutoSwitching` to `BestPerformance`
+- `DumpUtilizationData` and CPU/RAM/GPU percentages in `kr_native_utils.log`
+- `GetPowerScheme`, `GetPerformanceModeState`, and system battery or power settings
+
+For Accent Conversion, do not assume a CPU limitation without confirming the device capability. Use the CPU specs and system requirements as supporting evidence. The practical thresholds to compare against are:
+
+- Single-thread rating: 3000 is the best-practice target; 2500 is acceptable; below 2500 is increasingly concerning and may be considered insufficient for smooth Accent Conversion performance.
+- Clock speed: roughly 3 GHz or above is the usual expectation for stable AC performance.
+- Typical TDP: 35 W or above is the usual guideline; lower-power systems may still work, but they are more likely to show quality degradation or processor switching under load.
+
+Interpretation:
+
+- A hard overload or repeated auto-switching to `BestPerformance` can affect audio quality.
+- If the CPU is below the stated thresholds, it does not automatically rule out CPU as the cause; the total available processing headroom still matters, and the inherent CPU power of the device can affect the audio quality despite low load levels.
+- If the CPU is near or below the minimum range, cite that as a likely contributor, not as a proven root cause, unless the rest of the evidence lines up with the symptom and the system behavior.
+
+Useful references:
+
+- [Krisp AI Accent Conversion user guide](https://help.krisp.ai/hc/en-us/articles/26429444363548-Krisp-AI-Accent-Conversion-user-guide#h_01KMZCRT3KF33YBC6DNKW6N3Z8)
+- [System requirements for Krisp Call Center AI](https://help.krisp.ai/hc/en-us/articles/27188150457116-System-requirements-for-Krisp-Call-Center-AI#h_ac)
+- [How automatic gain control affects Krisp audio performance](https://help.krisp.ai/hc/en-us/articles/27939278357020-How-automatic-gain-control-affects-Krisp-audio-performance)
+
+### 5. Frame handling and media-stream quality
+
+Check `kr_media_sp.log` for dropped frames, overwrites, and energy stats. This is especially important when the symptom is choppy or inconsistent audio.
+
+Look for:
+
+- `Overwrite - Cnt` and `DroppedFrameCount`
+- `Len`, `Write`, `Read`, `Empty`
+- `Graph:EnergyStats()` before and after processing
+- `Write - Cnt` vs `Overwrite - Cnt` to tell whether frames are being skipped during processing
+
+Interpretation:
+
+- Nonzero `Overwrite` or dropped-frame counts can indicate CPU pressure or processing delays.
+- If energy is present before processing, then zero afterward, check whether the sound is being removed by processing instead of being captured normally.
+- If the audio sample itself is weak or inconsistent before processing, do not assume the issue is caused by Krisp alone.
+
+### 6. Audio sample analysis and quality before processing
+
+Review the real capture and processed sample when available. Pay attention to:
+
+- audio quality before processing is applied
+- bandwidth and sample integrity
+- speaker tone, intonation, and cadence
+- pronunciation and naturalness
+
+Do not ignore inconsistencies between the original audio sample and the processed sample. The original capture is the baseline for evaluation. If the original audio is already poor, the issue may be caused by the device, microphone, or environment rather than by Accent Conversion itself.
+
+### 7. Test AC recording and toggles
+
+For AC test recordings, inspect the test flow and check the related states and settings:
+
+- test AC recording started / stopped
+- selected device used for the test AC recording
+- `modelName`, `voiceName`, `modeName`, profile selection, and toggle state
+- whether the Krisp toggle was enabled or disabled during the test
+
+These checks often help confirm whether the issue is tied to the generic call route or specifically to the model/profile state in Accent Conversion.
 
 ## Investigation workflow
 
@@ -142,11 +278,29 @@ Use these cases as symptom-oriented examples, not as automatic diagnoses. Verify
 
 ## Customer response
 
+### Template library
+
+Before drafting the response, consult [`templates/CUSTOMER_EMAIL_TEMPLATES.md`](templates/CUSTOMER_EMAIL_TEMPLATES.md). Select the closest matching macro based on the evidence and symptom, not just the customer's wording. The library contains device-based and email-based variants where provided.
+
+- Use the device-based variant when the ticket/report is addressed to a team about an affected user's device; use the email-based variant when replying directly to the requester. If the ticket channel is unclear, use the email-based variant and identify that choice in the output.
+- Include the selected macro name and its device/email variant.
+- Reproduce the chosen template as a complete, send-ready email. Replace template placeholders only with values established by the case. Preserve Zendesk variables when the email will be pasted into Zendesk; do not invent names, dates, CPU models, links, or log findings.
+- Where a macro offers mutually exclusive options (for example microphone issue Options 1–3 or report-request sections [GENERAL]/[VT]/[NC]/[AC]), include only the option/section supported by the case. Do not send all alternatives.
+- If no supplied macro fits, use the closest applicable clarification, report-request, or general investigation response, or write a narrowly tailored email in the same style. State when no exact macro exists.
+- Keep internal log details, confidence assessments, and technical speculation out of the customer email unless the selected template explicitly calls for a customer-safe explanation. Describe uncertain causes as possible contributors, never as confirmed facts.
+
+### Required response structure
+
+Every investigation response must contain these two sections, in this order:
+
+1. **Technical findings (internal)** — identify the symptom and selected macro; summarize direct evidence with log filename and timestamp/call ID when available; explain the technical mechanism and distinguish confirmed facts from likely contributors; state confidence and any evidence gaps or additional checks. Do not claim evidence that was not supplied or reviewed. If logs are inconclusive, say so plainly.
+2. **Customer email** — state the selected macro name and variant, then provide the complete email body ready to send. Preserve appropriate template formatting, links, and Zendesk placeholders. Never omit the email merely because the technical findings are inconclusive; use a clarification or report-request macro when needed.
+
 Use clear, empathetic language and avoid internal jargon unless it helps explain the next step. Do not expose speculative diagnoses as facts. Tailor the response to the evidence; do not send a generic list of every possible cause.
 
 ### Confirmed muted Krisp microphone
 
-When logs confirm that the Krisp microphone is muted during the call, explain that this is why the customer's voice is not being transmitted. A concise response may be:
+When logs confirm that the Krisp microphone is muted during the call, use the matching setup/clarification guidance in the template library or a concise, case-specific email to explain that this is why the customer's voice is not being transmitted. A concise customer-facing explanation may be:
 
 > Your Krisp Microphone is muted, so your voice is not being sent to the meeting. Please unmute it and try another call.
 
@@ -154,17 +308,6 @@ Only use the present tense when the logs confirm that it remains muted. If the l
 
 ### Other findings or inconclusive logs
 
-Adapt this structure to the case:
-
-```text
-Hi [Customer name],
-
-Thanks for sharing the details and logs. We reviewed the logs for the call around [time]. They show [specific finding]. This [explains / may have contributed to] [reported symptom].
-
-Please try [specific next step]. If the issue continues, please send us [targeted additional evidence or details].
-
-Best,
-Krisp Support
-```
+Use the closest evidence-supported template. If there is no matching macro, adapt a concise email to the case using only verified findings, a specific next step, and a targeted request for any missing evidence.
 
 For additional Krisp Call Center AI product information, use the [Krisp Call Center AI Help Center](https://help.krisp.ai/hc/en-us/categories/4550555112860-Krisp-Call-Center-AI).
