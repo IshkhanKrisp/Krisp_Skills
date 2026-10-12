@@ -789,7 +789,7 @@ Best regards,
 ## 23. Update to the latest version
 
 **Macro:** `Technical::(CX-device) Update to the latest version` or `Technical::(CX-email) Update to the latest version`  
-**Description:** Logs show the device is running an outdated Krisp version. Replace `INSERT_VERSION` with the observed version when known.
+**Description:** Logs show the device is running an outdated Krisp version. Replace `INSERT_VERSION` with the observed version and, when confirmed, `INSERT_LATEST_VERSION` with the current latest version. If the latest version is unknown, remove the comparison clause and refer to the latest release. Recommend updating without presenting the older version as the proven cause.
 
 ### CX (device-based)
 
@@ -799,7 +799,7 @@ This is {{current_user.first_name}} with the Krisp Customer Engineering team.
 
 We have received a report from one of your users from the device under the hostname {{ticket.requester.name}}, which is part of the {{ticket.ticket_field_13167261768092}} Krisp team, with the following message: "{{ticket.ticket_field_13166922449692}}".
 
-The logs show the device is running an older version of Krisp (INSERT_VERSION). A number of fixes and improvements have shipped since then, so the reported issue may already be resolved in the latest release. Please have the user update and retest:
+The logs show the device is running an older version of Krisp (INSERT_VERSION), while the latest version is INSERT_LATEST_VERSION. A number of fixes and improvements have shipped since then, so the reported issue may already be resolved in the latest release. Please have the user update and retest:
 1. Open the Krisp app and check the current version under Settings.
 2. Download and install the latest version from [account.krisp.ai](https://account.krisp.ai/).
 3. Restart the app and try again.
@@ -813,7 +813,7 @@ Hi {{ticket.requester.first_name}},
 
 Thanks for reaching out. This is {{current_user.first_name}} with the Krisp Customer Engineering team.
 
-The logs show your device is running an older version of Krisp (INSERT_VERSION). A number of fixes and improvements have shipped since then, so the issue may already be resolved in the latest release. Please update and retest:
+The logs show your device is running an older version of Krisp (INSERT_VERSION), while the latest version is INSERT_LATEST_VERSION. A number of fixes and improvements have shipped since then, so the issue may already be resolved in the latest release. Please update and retest:
 1. Open the Krisp app and check your current version under Settings.
 2. Download and install the latest version from [account.krisp.ai](https://account.krisp.ai/).
 3. Restart the app and try again.

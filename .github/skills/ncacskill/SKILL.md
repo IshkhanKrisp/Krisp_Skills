@@ -156,6 +156,19 @@ These checks often help confirm whether the issue is tied to the generic call ro
 
 ## Investigation workflow
 
+### Optional first-pass analysis with the Krisp Log Analyzer
+
+When the notebook [`krisp_log_analyzer.ipynb`](../../../krisp_log_analyzer.ipynb) is available and a local Jupyter environment can be used safely, run it as a triage aid before or alongside the manual checks below. It organizes selected signals into a summary and driver view, device/headset views, CPU and memory, overwrite, ducking/unhealthy, TestNC, full microphone/speaker timelines, and detailed recent-call timelines. This can help narrow down which calls and timestamps to inspect in the source logs.
+
+Before running it:
+
+- Review the notebook code and use it only in a trusted local Jupyter environment with the customer's logs. The notebook processes log files locally; do not upload customer logs to an unapproved service.
+- Set `FOLDER` to the actual extracted log folder. The checked-in notebook's default is a machine-specific path and will not work on other systems.
+- Check `LATEST_KRISP_VERSION` against the version confirmed for this case before using the version comparison in its summary. Its configured value may be stale.
+- Set `START_TIME` and `END_TIME` when the reported issue has a known time window; otherwise, review the whole available log set.
+
+Treat the notebook's red/green styling, configured thresholds, and missing-data indicators as navigation hints only. They are heuristic and configuration-dependent: a red flag does not establish a cause, and no flag does not rule one out. Confirm every relevant result in the original logs, correlate it with the reported call and symptom, and follow the evidence-based checks below. If the notebook cannot be run, continue with the manual workflow; do not treat notebook output as a prerequisite for completing an investigation.
+
 ### 1. Start with `kr_app` logs and identify the call
 
 Begin with the most recent `kr_app.log`, then search older rotated files (`kr_app.1.log` through `kr_app.10.log`) if the reported call is not there. Correlate events by timestamp and call ID.
@@ -171,6 +184,16 @@ Find the `[CALL_START]` entries for the reported period. Microphone and speaker 
 - `bvcCompatibilityState`: check whether Background Voice Cancellation (BVC), also called Voice Isolation, is available for the selected device. If the customer describes unwanted voices or noise and the state is not `ALLOWED`, this may be relevant: customers may describe secondary voices as noise. Treat it as a possible explanation and consider the device and symptom context; do not present it as proven solely from this field.
 
 Krisp microphone and Krisp speaker are virtual devices. The customer selects the actual microphone and speaker in the Krisp app, while selecting Krisp microphone and/or Krisp speaker as the corresponding input/output in the calling app. Confirm both sides of this route where the logs allow it.
+
+#### Verify the Krisp microphone route before investigating secondary symptoms
+
+For Noise Cancellation reports, verify that the calling app is actually sending microphone audio through **Krisp Microphone** before attributing the issue to the widget, NC model, device compatibility, or performance. Microphone and speaker call records are independent: a `[CALL_START]` for `Type: speaker` confirms only the speaker path and does not establish that the microphone is routed through Krisp.
+
+- Inspect the latest relevant calls and check for a microphone `[CALL_START]` as well as a speaker `[CALL_START]`. Do not assume a speaker record represents both paths.
+- If there is no microphone `[CALL_START]`, inspect nearby `DeviceManager.dumpStreams`, `CallService:addStreamClient` / call updates, `[STREAM_START]`, and analytics records to determine what the calling app is using for its microphone.
+- Strong evidence of a microphone setup/routing issue includes a call using a physical microphone rather than `Krisp Microphone`, `mic_in_use: false`, or log messages such as `Call is not on Krisp microphone` and `Stream ignored, stream is not on krisp device`. Correlate these with the same app and time window before concluding.
+- When this route is confirmed, report that Krisp Microphone is not selected in the calling application and recommend selecting it as the input. This can explain why microphone Noise Cancellation is not applied. Do not let a generic description or a subcategory such as “The widget is not responding” override direct call-routing evidence; note any distinction between the reported UI symptom and the confirmed audio setup issue.
+- Absence of a microphone `[CALL_START]` alone is not conclusive if the log window is incomplete or the app was not transmitting microphone audio. Look for corroborating route/stream evidence and state uncertainty where it remains.
 
 #### `[CALL_END]`
 
@@ -265,6 +288,7 @@ Use these cases as symptom-oriented examples, not as automatic diagnoses. Verify
 | “Noise Cancellation doesn't work” or unwanted background voices are audible. | `[CALL_START]` has `bvcCompatibilityState: "BLOCKED"`. | The selected device may not support BVC/Voice Isolation. Customers may describe secondary voices as noise; confirm the device and symptom before attributing the issue to compatibility. |
 | “I've recorded myself but can't hear the audio when I play it back.” | `[CALL_START]` shows the selected recording/input device is a display/monitor rather than the intended microphone. | Check the selected microphone and audio route for the recording. |
 | “The customer can barely hear me.” | `[CALL_START]` shows a built-in microphone; `[VOLUME_CHANGED]` in `kr_audio_dm.log` shows low Krisp microphone volume. | Both the selected input device and Krisp microphone level may contribute. Confirm the device IDs with `dm_reporting.txt` and compare relevant volume events. |
+| “Krisp is not working properly” or microphone Noise Cancellation is not applied. | The recent calls have speaker `[CALL_START]` records but no corresponding Krisp-microphone call start; nearby call/stream logs show the calling app using a physical microphone and/or explicitly report that it is not on Krisp Microphone. | The calling app is bypassing Krisp's microphone path, so Krisp cannot process the outgoing microphone audio. Confirm with correlated stream/analytics evidence and recommend selecting Krisp Microphone as the calling app's input. A speaker call record alone does not prove microphone routing. |
 | “I cannot hear the customer, Krisp is properly selected in Google Meet.” | `AudioService:onGraphInitError` reports `The working device is unhealthy` for `streamType: krisp_spk_inbound`. | The active speaker-side device/stream is reported unhealthy. Recommend changing the affected device, then verify the route and whether the error recurs. |
 | “The buttons do not work.” | `AccountService.getProfileData` indicates that Noise Cancellation toggles are enforced as always on. | Account-level enforcement may prevent the customer from changing those toggles. Review the relevant enforcement settings at [account.krisp.ai](https://account.krisp.ai/) and confirm the intended agent/customer policy with the account administrator before recommending a change. |
 | “The customer's voice is going in and out when I use Krisp.” | `AudioService:onAudioStreamCreated` reports `Ducking mode: ReduceBy80`; the volume-control log changes from `LOCK_ON_OPTIMAL_LEVEL` to `SYNC_WITH_KRISP`. | Check whether ducking is reducing speaker volume and whether the volume-control mode changed during the affected period. `LOCK_ON_OPTIMAL_LEVEL` is the expected mode in this troubleshooting workflow to help prevent AGC or other software volume reductions from affecting audio. Correlate the mode change with volume events before identifying it as the cause. |
@@ -282,7 +306,8 @@ Use these cases as symptom-oriented examples, not as automatic diagnoses. Verify
 
 Before drafting the response, consult [`templates/CUSTOMER_EMAIL_TEMPLATES.md`](templates/CUSTOMER_EMAIL_TEMPLATES.md). Select the closest matching macro based on the evidence and symptom, not just the customer's wording. The library contains device-based and email-based variants where provided.
 
-- Use the device-based variant when the ticket/report is addressed to a team about an affected user's device; use the email-based variant when replying directly to the requester. If the ticket channel is unclear, use the email-based variant and identify that choice in the output.
+- Check the installed Krisp app version in the supplied report/logs and compare it with the latest version established for the case (for example, a version supplied by the user or an authoritative current source). Do not assume the latest version from memory. The user supplied 2.82.6 as the latest Krisp app version on 2026-10-12; treat this as dated case context, not a timeless version reference. If the installed version is older, select the “Update to the latest version” macro and include the confirmed latest version where known. Treat updating as the recommended next step, not as proof that the outdated version caused the symptom; if the issue persists, continue with the relevant troubleshooting findings.
+- Use the device-based variant when the ticket/report is addressed to a team about an affected user's device (for example, it provides a hostname and team name); use the email-based variant when replying directly to the requester. If the ticket channel is unclear, use the email-based variant and identify that choice in the output.
 - Include the selected macro name and its device/email variant.
 - Reproduce the chosen template as a complete, send-ready email. Replace template placeholders only with values established by the case. Preserve Zendesk variables when the email will be pasted into Zendesk; do not invent names, dates, CPU models, links, or log findings.
 - Where a macro offers mutually exclusive options (for example microphone issue Options 1–3 or report-request sections [GENERAL]/[VT]/[NC]/[AC]), include only the option/section supported by the case. Do not send all alternatives.
