@@ -156,6 +156,18 @@ These checks often help confirm whether the issue is tied to the generic call ro
 
 ## Investigation workflow
 
+### Fast, symptom-directed triage
+
+Use the smallest evidence path that can answer the reported symptom; the detailed checks below are references, not a checklist to run in full for every case.
+
+1. Identify the symptom and, if provided, the affected call time. Start with the relevant current log and search for the call/device state and symptom-specific events.
+2. For calling-app audio or in-call features, always verify the Krisp microphone route. For other issues, start with the log most likely to contain the needed evidence; inspect other log types only when the first evidence points there or leaves a material gap.
+3. If the affected call is absent from the current log, inspect the relevant rotated logs. If no time is given, use the latest two relevant calls as an initial sample rather than scanning every rotation.
+4. Expand the time window or inspect adjacent logs only to corroborate a likely explanation, resolve conflicting evidence, or fill a gap that affects the conclusion. Stop when the symptom is explained by direct, time-correlated evidence and any required route check; do not collect unrelated signals.
+5. Skip the optional notebook for a straightforward case. Use it as a triage aid only when the log set is large or the relevant call is difficult to locate, and still verify findings in source logs.
+
+When using shell/search tools, search the relevant logs and independent event patterns together where practical, then read only the matching context. Do not dump entire logs into the analysis.
+
 ### Optional first-pass analysis with the Krisp Log Analyzer
 
 When the notebook [`krisp_log_analyzer.ipynb`](../../../krisp_log_analyzer.ipynb) is available and a local Jupyter environment can be used safely, run it as a triage aid before or alongside the manual checks below. It organizes selected signals into a summary and driver view, device/headset views, CPU and memory, overwrite, ducking/unhealthy, TestNC, full microphone/speaker timelines, and detailed recent-call timelines. This can help narrow down which calls and timestamps to inspect in the source logs.
@@ -185,14 +197,14 @@ Find the `[CALL_START]` entries for the reported period. Microphone and speaker 
 
 Krisp microphone and Krisp speaker are virtual devices. The customer selects the actual microphone and speaker in the Krisp app, while selecting Krisp microphone and/or Krisp speaker as the corresponding input/output in the calling app. Confirm both sides of this route where the logs allow it.
 
-#### Verify the Krisp microphone route before investigating secondary symptoms
+#### Verify the Krisp microphone route before concluding on call-related issues
 
-For Noise Cancellation reports, verify that the calling app is actually sending microphone audio through **Krisp Microphone** before attributing the issue to the widget, NC model, device compatibility, or performance. Microphone and speaker call records are independent: a `[CALL_START]` for `Type: speaker` confirms only the speaker path and does not establish that the microphone is routed through Krisp.
+For any report involving calling-app audio or an in-call Krisp feature, verify whether the app is sending microphone audio through **Krisp Microphone** before finalizing the findings. Do this even when the reported symptom points to another area, such as the widget or network; a confirmed route does not rule out an independent issue, and a route issue must not be inferred from an unrelated symptom. Microphone and speaker call records are independent: a `[CALL_START]` for `Type: speaker` confirms only the speaker path and does not establish that the microphone is routed through Krisp.
 
 - Inspect the latest relevant calls and check for a microphone `[CALL_START]` as well as a speaker `[CALL_START]`. Do not assume a speaker record represents both paths.
 - If there is no microphone `[CALL_START]`, inspect nearby `DeviceManager.dumpStreams`, `CallService:addStreamClient` / call updates, `[STREAM_START]`, and analytics records to determine what the calling app is using for its microphone.
 - Strong evidence of a microphone setup/routing issue includes a call using a physical microphone rather than `Krisp Microphone`, `mic_in_use: false`, or log messages such as `Call is not on Krisp microphone` and `Stream ignored, stream is not on krisp device`. Correlate these with the same app and time window before concluding.
-- When this route is confirmed, report that Krisp Microphone is not selected in the calling application and recommend selecting it as the input. This can explain why microphone Noise Cancellation is not applied. Do not let a generic description or a subcategory such as “The widget is not responding” override direct call-routing evidence; note any distinction between the reported UI symptom and the confirmed audio setup issue.
+- Report that Krisp Microphone is not selected, and recommend selecting it as the calling app's input, only when the logs confirm that the app is using a physical input instead of Krisp Microphone. This can explain why microphone Noise Cancellation is not applied. Do not let a generic description or a subcategory such as “The widget is not responding” override direct call-routing evidence; note any distinction between the reported UI symptom and the confirmed audio setup issue.
 - Absence of a microphone `[CALL_START]` alone is not conclusive if the log window is incomplete or the app was not transmitting microphone audio. Look for corroborating route/stream evidence and state uncertainty where it remains.
 
 #### `[CALL_END]`
@@ -304,9 +316,9 @@ Use these cases as symptom-oriented examples, not as automatic diagnoses. Verify
 
 ### Template library
 
-Before drafting the response, consult [`templates/CUSTOMER_EMAIL_TEMPLATES.md`](templates/CUSTOMER_EMAIL_TEMPLATES.md). Select the closest matching macro based on the evidence and symptom, not just the customer's wording. The library contains device-based and email-based variants where provided.
+Before drafting the response, consult [`templates/CUSTOMER_EMAIL_TEMPLATES.md`](templates/CUSTOMER_EMAIL_TEMPLATES.md). Select the closest matching macro based on the evidence and symptom, not just the customer's wording. The library contains device-based and email-based variants where provided. Find the matching macro by its heading and read only that section and the applicable variant/options; do not load the full template library unless no single match is clear.
 
-- Check the installed Krisp app version in the supplied report/logs and compare it with the latest version established for the case (for example, a version supplied by the user or an authoritative current source). Do not assume the latest version from memory. The user supplied 2.82.6 as the latest Krisp app version on 2026-10-12; treat this as dated case context, not a timeless version reference. If the installed version is older, select the “Update to the latest version” macro and include the confirmed latest version where known. Treat updating as the recommended next step, not as proof that the outdated version caused the symptom; if the issue persists, continue with the relevant troubleshooting findings.
+- Check the installed Krisp app version when it is present in the supplied report/logs. If it is older than the latest version confirmed for the case, select the “Update to the latest version” macro and include the confirmed version where known. Do not look up or assume a latest version when the installed version is absent or version age is not relevant to the reported issue. The user supplied 2.82.6 as the latest Krisp app version on 2026-10-12; treat this as dated case context, not a timeless version reference. Treat updating as a recommended next step, not as proof that the outdated version caused the symptom; if the issue persists, continue with the relevant troubleshooting findings.
 - Use the device-based variant when the ticket/report is addressed to a team about an affected user's device (for example, it provides a hostname and team name); use the email-based variant when replying directly to the requester. If the ticket channel is unclear, use the email-based variant and identify that choice in the output.
 - Include the selected macro name and its device/email variant.
 - Reproduce the chosen template as a complete, send-ready email. Replace template placeholders only with values established by the case. Preserve Zendesk variables when the email will be pasted into Zendesk; do not invent names, dates, CPU models, links, or log findings.
